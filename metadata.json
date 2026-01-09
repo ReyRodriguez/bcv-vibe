@@ -1,6 +1,6 @@
 {
-  "name": "Bolívar Flow - BCV Monitor",
-  "description": "Una aplicación elegante y funcional para convertir divisas en Venezuela, obteniendo la tasa oficial más reciente del Banco Central de Venezuela (BCV) mediante IA y búsqueda en tiempo real.",
+  "name": "Bolívar Reality Check",
+  "description": "Análisis y comparación en tiempo real entre la tasa oficial BCV y el mercado Binance P2P en Venezuela.",
   "requestFramePermissions": [
     "geolocation"
   ]
