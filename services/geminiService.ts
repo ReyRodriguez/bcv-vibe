@@ -3,18 +3,12 @@ import { GoogleGenAI } from "@google/genai";
 import { ExchangeRate, GroundingSource } from "../types";
 
 export const fetchLatestRates = async (): Promise<ExchangeRate> => {
-  // Acceso seguro para evitar ReferenceError en navegadores sin polyfill de process
-  const getApiKey = () => {
-    try {
-      return (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : undefined;
-    } catch (e) {
-      return undefined;
-    }
-  };
-
-  const apiKey = getApiKey();
+  // Según las guías del SDK, debemos usar process.env.API_KEY directamente.
+  // Es vital realizar un "Redeploy" en Vercel tras añadir la variable.
+  const apiKey = process.env.API_KEY;
+  
   if (!apiKey) {
-    throw new Error("API_KEY no detectada. Asegúrate de haberla configurado en Vercel.");
+    throw new Error("API_KEY no detectada. Por favor: 1. Verifica que la variable se llame API_KEY en Vercel. 2. Haz un 'Redeploy' manual del proyecto.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -49,14 +43,14 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
     const jsonString = textResponse.replace(/```json|```/g, '').trim();
     const result = JSON.parse(jsonString);
     
-    // Extracción de Grounding Chunks (Obligatorio por política de Gemini API)
+    // Extracción obligatoria de Grounding Chunks para cumplir con las políticas de Google Search
     const groundingSources: GroundingSource[] = [];
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (chunks && Array.isArray(chunks)) {
       chunks.forEach((chunk: any) => {
         if (chunk.web) {
           groundingSources.push({
-            title: chunk.web.title || "Fuente de búsqueda",
+            title: chunk.web.title || "Fuente de verificación",
             uri: chunk.web.uri
           });
         }
@@ -80,6 +74,6 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
     console.error("Error en geminiService:", error);
     const cached = localStorage.getItem('last_known_rates');
     if (cached) return JSON.parse(cached);
-    throw new Error(error?.message || "Error al conectar con Gemini.");
+    throw new Error(error?.message || "Error al conectar con la IA. Revisa tu cuota de API o conexión.");
   }
 };
