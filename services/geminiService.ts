@@ -3,30 +3,46 @@ import { GoogleGenAI } from "@google/genai";
 import { ExchangeRate, GroundingSource } from "../types";
 
 export const fetchLatestRates = async (): Promise<ExchangeRate> => {
-  // Según las guías del SDK, debemos usar process.env.API_KEY directamente.
-  // Es vital realizar un "Redeploy" en Vercel tras añadir la variable.
-  const apiKey = process.env.API_KEY;
+  // Intentamos obtener la clave de forma segura sin romper el hilo de ejecución
+  let apiKey: string | undefined;
   
+  try {
+    // 1. Intentamos acceso directo (inyectado por builders como Vite/Esbuild)
+    apiKey = process.env.API_KEY;
+    
+    // 2. Si no existe, buscamos en el objeto global (posible shim de la plataforma)
+    if (!apiKey && typeof window !== 'undefined') {
+      apiKey = (window as any).process?.env?.API_KEY || (window as any).API_KEY;
+    }
+  } catch (e) {
+    console.warn("No se pudo acceder al objeto process.");
+  }
+
   if (!apiKey) {
-    throw new Error("API_KEY no detectada. Por favor: 1. Verifica que la variable se llame API_KEY en Vercel. 2. Haz un 'Redeploy' manual del proyecto.");
+    throw new Error(
+      "ERROR: API_KEY no encontrada en el navegador.\n\n" +
+      "Si estás en Vercel:\n" +
+      "1. Verifica que añadiste 'API_KEY' en Environment Variables.\n" +
+      "2. ¡IMPORTANTE! Debes ir a 'Deployments' y hacer un 'Redeploy' manual para que los cambios surtan efecto."
+    );
   }
 
   const ai = new GoogleGenAI({ apiKey });
   
   try {
     const prompt = `
-      Act as a Venezuelan Financial Analyst. Provide the MOST RECENT exchange rates for TODAY.
+      Act as a Venezuelan Financial Analyst. Find the MOST RECENT exchange rates for TODAY.
       
       SEARCH TASKS:
-      1. Find the official USD/VES rate from Banco Central de Venezuela (BCV).
-      2. Find the current average price for USDT/VES on the Binance P2P market in Venezuela.
+      1. Official USD/VES rate from Banco Central de Venezuela (BCV).
+      2. Average price for USDT/VES on Binance P2P Venezuela.
 
-      Format the response strictly as valid JSON:
+      Return ONLY a JSON object:
       {
         "bcv_rate": number,
         "binance_rate": number,
-        "date": "string current time",
-        "bcv_source": "string url"
+        "date": "string iso date",
+        "bcv_source": "https://www.bcv.org.ve/"
       }
     `;
     
@@ -43,14 +59,14 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
     const jsonString = textResponse.replace(/```json|```/g, '').trim();
     const result = JSON.parse(jsonString);
     
-    // Extracción obligatoria de Grounding Chunks para cumplir con las políticas de Google Search
+    // Extracción de Grounding (Obligatorio)
     const groundingSources: GroundingSource[] = [];
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (chunks && Array.isArray(chunks)) {
       chunks.forEach((chunk: any) => {
         if (chunk.web) {
           groundingSources.push({
-            title: chunk.web.title || "Fuente de verificación",
+            title: chunk.web.title || "Fuente oficial",
             uri: chunk.web.uri
           });
         }
@@ -60,7 +76,7 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
     const data: ExchangeRate = {
       rate: result.bcv_rate,
       parallelRate: result.binance_rate,
-      date: result.date || new Date().toLocaleString('es-VE'),
+      date: result.date || new Date().toISOString(),
       source: "BCV",
       parallelSource: "Binance P2P",
       sourceUrl: result.bcv_source || "https://www.bcv.org.ve/",
@@ -74,6 +90,6 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
     console.error("Error en geminiService:", error);
     const cached = localStorage.getItem('last_known_rates');
     if (cached) return JSON.parse(cached);
-    throw new Error(error?.message || "Error al conectar con la IA. Revisa tu cuota de API o conexión.");
+    throw new Error(error?.message || "Error al conectar con la IA de Google.");
   }
 };
