@@ -1,4 +1,9 @@
 
+export interface GroundingSource {
+  title: string;
+  uri: string;
+}
+
 export interface ExchangeRate {
   rate: number;          // Tasa BCV
   parallelRate: number;  // Tasa Binance P2P
@@ -6,6 +11,7 @@ export interface ExchangeRate {
   source: string;
   sourceUrl?: string;
   parallelSource?: string;
+  groundingSources?: GroundingSource[]; // URLs de respaldo encontradas por la búsqueda
 }
 
 export interface ConversionRecord {

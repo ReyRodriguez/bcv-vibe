@@ -1,9 +1,23 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { ExchangeRate } from "../types";
+import { ExchangeRate, GroundingSource } from "../types";
 
 export const fetchLatestRates = async (): Promise<ExchangeRate> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Acceso seguro para evitar ReferenceError en navegadores sin polyfill de process
+  const getApiKey = () => {
+    try {
+      return (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : undefined;
+    } catch (e) {
+      return undefined;
+    }
+  };
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error("API_KEY no detectada. Asegúrate de haberla configurado en Vercel.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const prompt = `
@@ -11,16 +25,14 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
       
       SEARCH TASKS:
       1. Find the official USD/VES rate from Banco Central de Venezuela (BCV).
-      2. Find the current average SELL price for USDT/VES on the Binance P2P market (Venezuela). 
-         Note: The user reports the rate is currently around 655 VES/USDT. Verify this value.
+      2. Find the current average price for USDT/VES on the Binance P2P market in Venezuela.
 
-      Format the response strictly as valid JSON (no markdown blocks, no extra text):
+      Format the response strictly as valid JSON:
       {
         "bcv_rate": number,
         "binance_rate": number,
-        "date": "string with current time",
-        "bcv_source": "string url",
-        "parallel_source": "string name (e.g., Binance P2P / Monitor Dolar)"
+        "date": "string current time",
+        "bcv_source": "string url"
       }
     `;
     
@@ -33,13 +45,22 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
       },
     });
 
-    // Limpieza de la respuesta para asegurar que solo procesamos el JSON
     const textResponse = response.text || '';
     const jsonString = textResponse.replace(/```json|```/g, '').trim();
     const result = JSON.parse(jsonString);
     
-    if (!result.bcv_rate || !result.binance_rate) {
-      throw new Error("La IA no pudo encontrar datos completos.");
+    // Extracción de Grounding Chunks (Obligatorio por política de Gemini API)
+    const groundingSources: GroundingSource[] = [];
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    if (chunks && Array.isArray(chunks)) {
+      chunks.forEach((chunk: any) => {
+        if (chunk.web) {
+          groundingSources.push({
+            title: chunk.web.title || "Fuente de búsqueda",
+            uri: chunk.web.uri
+          });
+        }
+      });
     }
 
     const data: ExchangeRate = {
@@ -47,8 +68,9 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
       parallelRate: result.binance_rate,
       date: result.date || new Date().toLocaleString('es-VE'),
       source: "BCV",
-      parallelSource: result.parallel_source || "Binance P2P",
-      sourceUrl: result.bcv_source || "https://www.bcv.org.ve/"
+      parallelSource: "Binance P2P",
+      sourceUrl: result.bcv_source || "https://www.bcv.org.ve/",
+      groundingSources: groundingSources.length > 0 ? groundingSources : undefined
     };
 
     localStorage.setItem('last_known_rates', JSON.stringify(data));
@@ -57,10 +79,7 @@ export const fetchLatestRates = async (): Promise<ExchangeRate> => {
   } catch (error: any) {
     console.error("Error en geminiService:", error);
     const cached = localStorage.getItem('last_known_rates');
-    if (cached) {
-      console.warn("Retornando datos de caché debido a error.");
-      return JSON.parse(cached);
-    }
-    throw new Error(error?.message || "Error al conectar con el servicio de tasas.");
+    if (cached) return JSON.parse(cached);
+    throw new Error(error?.message || "Error al conectar con Gemini.");
   }
 };
